@@ -9,7 +9,12 @@
  * built-in LED.
  */
 
+// #define REPORT_TO_STDIO 1
+#define REPORT_TO_STDIO 0
+
+#if REPORT_TO_STDIO==1
 #include <stdio.h>
+#endif
 #include <string.h>
 
 #include "hardware/adc.h"
@@ -56,15 +61,29 @@ void internal_temperature_init();
 float internal_temperature_get();
 float battery_get();
 
+void flash(int n) {
+    for (int i = 0; i < n; i++) {
+        gpio_put(PICO_DEFAULT_LED_PIN, 1);
+        sleep_ms(200);
+        gpio_put(PICO_DEFAULT_LED_PIN, 0);
+        sleep_ms(200);
+    }
+}
+
 int main( void )
 {
     // initialize stdio and wait for USB CDC connect
+#if REPORT_TO_STDIO==1
     stdio_init_all();
     while (!tud_cdc_connected()) {
         tight_loop_contents();
     }
     
     printf("Pico LoRaWAN - OTAA - Temperature + LED\n\n");
+#else
+    gpio_init(PICO_DEFAULT_LED_PIN);
+    gpio_set_dir(PICO_DEFAULT_LED_PIN, GPIO_OUT);    
+#endif
 
     // initialize the LED pin and internal temperature ADC
     gpio_init(PICO_DEFAULT_LED_PIN);
@@ -73,28 +92,50 @@ int main( void )
     internal_temperature_init();
 
     // uncomment next line to enable debug
-    // lorawan_debug(true);
+    //lorawan_debug(true);
 
     // initialize the LoRaWAN stack
+#if REPORT_TO_STDIO==1
     printf("Initilizating LoRaWAN ... ");
+#else        
+        flash(1);
+#endif
     if (lorawan_init_otaa(&sx12xx_settings, LORAWAN_REGION, &otaa_settings) < 0) {
+#if REPORT_TO_STDIO==1
         printf("failed!!!\n");
+#else        
+        flash(4);
+#endif
         while (1) {
             tight_loop_contents();
         }
     } else {
+#if REPORT_TO_STDIO==1
         printf("success!\n");
+#else        
+        flash(1);
+#endif
     }
 
     // Start the join process and wait
+#if REPORT_TO_STDIO==1
     printf("Joining LoRaWAN network ...");
+#endif
     lorawan_join();
 
     while (!lorawan_is_joined()) {
         lorawan_process_timeout_ms(1000);
+#if REPORT_TO_STDIO==1
         printf(".");
+#else        
+        flash(2);
+#endif
     }
+#if REPORT_TO_STDIO==1
     printf(" joined successfully!\n");
+#else        
+        flash(1);
+#endif
 
     // loop forever
     while (1) {
@@ -103,14 +144,26 @@ int main( void )
         float adc_battery_byte = battery_get();
         char result[20];
         sprintf(result, "%.2f,%.2f", adc_temperature_byte,adc_battery_byte);
+#if REPORT_TO_STDIO==1
         printf(result);
-
+#endif
         // send the internal temperature as a (signed) byte in an unconfirmed uplink message
-        printf("sending internal temperature: %d 'C (0x%02x)... ", adc_temperature_byte, adc_temperature_byte);
-        if (lorawan_send_unconfirmed(&adc_temperature_byte, sizeof(adc_temperature_byte), 2) < 0) {
+#if REPORT_TO_STDIO==1
+        printf("\nsending internal temperature: %f 'C... ", adc_temperature_byte);
+#endif
+        //if (lorawan_send_unconfirmed(&adc_temperature_byte, sizeof(adc_temperature_byte), 2) < 0) {
+        if (lorawan_send_unconfirmed(result, strlen(result), 2) < 0) {
+#if REPORT_TO_STDIO==1
             printf("failed!!!\n");
+#else        
+        flash(2);
+#endif
         } else {
+#if REPORT_TO_STDIO==1
             printf("success!\n");
+#else        
+        flash(1);
+#endif
         }
 
         // wait for up to 30 seconds for an event
@@ -118,12 +171,17 @@ int main( void )
             // check if a downlink message was received
             receive_length = lorawan_receive(receive_buffer, sizeof(receive_buffer), &receive_port);
             if (receive_length > -1) {
+#if REPORT_TO_STDIO==1
                 printf("received a %d byte message on port %d: ", receive_length, receive_port);
-
+#endif
                 for (int i = 0; i < receive_length; i++) {
+#if REPORT_TO_STDIO==1
                     printf("%02x", receive_buffer[i]);
+#endif                    
                 }
+#if REPORT_TO_STDIO==1
                 printf("\n");
+#endif                    
 
                 // the first byte of the received message controls the on board LED
                 gpio_put(PICO_DEFAULT_LED_PIN, receive_buffer[0]);
